@@ -1,0 +1,101 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🎯 KUBE EGRESS GATEWAY HELM VALUES TEMPLATE
+# ═══════════════════════════════════════════════════════════════════════════════
+# 
+# This template file contains placeholders that are automatically replaced
+# by the generate_helm_values() function in deployoss.sh
+# 
+# Template Placeholders:
+#   {{TENANT_ID}}                   - Azure AD tenant ID from CLI login
+#   {{SUBSCRIPTION_ID}}             - Azure subscription ID from CLI login
+#   {{USER_ASSIGNED_IDENTITY_ID}}   - Managed identity client ID for AKS nodes
+#   {{RESOURCE_GROUP}}              - Resource group where AKS is deployed
+#   {{LOCATION}}                    - Azure region for deployment
+#   {{LOADBALANCER_RESOURCE_GROUP}} - AKS node resource group (VMSS location)
+#   {{VNET_NAME}}                   - VNet name (spoke1) containing egress subnet
+#   {{VNET_RESOURCE_GROUP}}         - Resource group containing the VNet
+#
+# Generated Output: helmosss/values.yaml (with actual values)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+common:
+  imageRepository: "local"
+  imageTag: "test"
+  gatewayLbProbePort: 8082
+
+gatewayControllerManager:
+  enabled: true
+  # imageRepository: "local"
+  imageName: "kube-egress-gateway-controller"
+  # imageTag: ""
+  imagePullPolicy: "IfNotPresent"
+  replicas: 1
+  leaderElect: "true"
+  metricsBindPort: 8080
+  healthProbeBindPort: 8081
+  nodeSelector: 
+    agentpool: "egresspool2"  # Egress node pool created in deployoss.sh
+    kubernetes.io/os: linux
+  tolerations: []
+
+gatewayCNIManager:
+  enabled: true
+  # imageRepository: "local"
+  imageName: "kube-egress-gateway-cnimanager"
+  # imageTag: ""
+  imagePullPolicy: "IfNotPresent"
+  grpcServerPort: 50051
+  exceptionCidrs:
+    - ""
+  cniConfigFileName: "01-egressgateway.conflist"
+  cniUninstallConfigMapName: "cni-uninstall"
+  cniUninstall: false
+  nodeSelector:
+    kubernetes.io/os: linux
+    agentpool: "egresspool2"  # Egress node pool created in deployoss.sh
+  tolerations: []
+
+gatewayDaemonManager:
+  enabled: true
+  # imageRepository: "local"
+  imageName: "kube-egress-gateway-daemon"
+  # imageTag: ""
+  imagePullPolicy: "IfNotPresent"
+  metricsBindPort: 8080
+  healthProbeBindPort: 8081
+
+gatewayDaemonManagerInit:
+  # imageRepository: "local"
+  imageName: "kube-egress-gateway-daemon-init"
+  # imageTag: ""
+  imagePullPolicy: "IfNotPresent"
+
+gatewayCNI:
+  # imageRepository: "local"
+  imageName: "kube-egress-gateway-cni"
+  # imageTag: ""
+  imagePullPolicy: "IfNotPresent"
+
+gatewayCNIIpam:
+  # imageRepository: "local"
+  imageName: "kube-egress-gateway-cni-ipam"
+  # imageTag: ""
+  imagePullPolicy: "IfNotPresent"
+
+config:
+  azureCloudConfig:
+    cloud: "AzurePublicCloud"
+    tenantId: "{{TENANT_ID}}"                           # Auto-populated: Azure AD tenant ID
+    subscriptionId: "{{SUBSCRIPTION_ID}}"               # Auto-populated: Azure subscription ID
+    useManagedIdentityExtension: true
+    userAssignedIdentityID: "{{USER_ASSIGNED_IDENTITY_ID}}"  # Auto-populated: AKS managed identity client ID
+    aadClientId: ""
+    aadClientSecret: ""
+    userAgent: "kube-egress-gateway-controller"
+    resourceGroup: "{{RESOURCE_GROUP}}"                 # Auto-populated: AKS resource group
+    location: "{{LOCATION}}"                            # Auto-populated: Azure region
+    gatewayLoadBalancerName: "kubeegressgateway-ilb"
+    loadBalancerResourceGroup: "{{LOADBALANCER_RESOURCE_GROUP}}"  # Auto-populated: AKS node resource group
+    vnetName: "{{VNET_NAME}}"                           # Auto-populated: VNet name (spoke1)
+    vnetResourceGroup: "{{VNET_RESOURCE_GROUP}}"        # Auto-populated: VNet resource group
+    subnetName: "egress-subnet"                         # Fixed: Subnet for egress gateway nodes

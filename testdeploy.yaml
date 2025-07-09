@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netshoot-int
+  labels:
+    app: netshoot-int
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: netshoot-int
+  template:
+    metadata:
+      annotations:
+       # kubernetes.azure.com/static-gateway-configuration: egresgw
+       kubernetes.azure.com/static-gateway-configuration: egresgw5
+      labels:
+        app: netshoot-int
+    spec:
+      containers:
+      - name: netshoot
+        image: nicolaka/netshoot:latest
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            echo "Testing connectivity to google.com";
+            curl -v https://www.google.com || echo "curl failed";
+            sleep 6000
+        tty: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netshoot-int-default
+  labels:
+    app: netshoot-int-default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: netshoot-int-default
+  template:
+    metadata:
+      labels:
+        app: netshoot-int-default
+    spec:
+      containers:
+      - name: netshoot-deault
+        image: nicolaka/netshoot:latest
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            echo "Testing connectivity to google.com";
+            curl -v https://www.google.com || echo "curl failed";
+            sleep 6000
+        tty: true
+--- 
+apiVersion: egressgateway.kubernetes.azure.com/v1alpha1
+kind: StaticGatewayConfiguration
+metadata:
+  name: egresgw5
+  namespace: default
+spec:
+ # gatewayNodepoolName: egresspool2
+  defaultRoute: staticEgressGateway
+  excludeCidrs:  # Optional. This is the CIDR range that will not use the egress gateway. in the config below this is the pod range.
+    - 192.168.0.0/16 
+  gatewayVmssProfile: 
+    vmssResourceGroup: {{VMSS_RESOURCE_GROUP}}
+    vmssName: {{VMSS_NAME}}
+#    publicIpPrefixSize: 31
+  provisionPublicIps: false
