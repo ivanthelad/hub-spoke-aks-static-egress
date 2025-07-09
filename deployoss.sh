@@ -2,7 +2,7 @@
 # 🏗️  HUB AND SPOKE AKS DEPLOYMENT SCRIPT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-PREFIX="87"
+PREFIX="88"
 RESOURCE_GROUP="${PREFIX}-aks-egress"
 CLUSTER_NAME="${PREFIX}-cilium-aks-cluster-egress"
 LOCATION="swedencentral"
@@ -154,13 +154,13 @@ create_networking() {
     --name spoke1 \
     --resource-group $RESOURCE_GROUP \
     --location $LOCATION \
-    --address-prefix 10.1.0.0/16 >/dev/null
+    --address-prefix 10.1.0.0/22 172.16.0.0/22 >/dev/null
 
   az network vnet create \
     --name spoke2 \
     --resource-group $RESOURCE_GROUP \
     --location $LOCATION \
-    --address-prefix 10.2.0.0/16 >/dev/null
+    --address-prefix 10.2.0.0/22 >/dev/null
 
   # Create subnets and export their IDs
   echo "Creating subnets in hub1, spoke1, and spoke2 VNets..."
@@ -200,28 +200,28 @@ create_networking() {
     --name egress-subnet \
     --resource-group $RESOURCE_GROUP \
     --vnet-name spoke1 \
-    --address-prefix 10.1.1.0/24 >/dev/null
+    --address-prefix 10.1.0.0/26 >/dev/null
   export EGRESS_SUBNET_ID=$(az network vnet subnet show --resource-group $RESOURCE_GROUP --vnet-name spoke1 --name egress-subnet --query id -o tsv)
 
   az network vnet subnet create \
     --name app-subnet \
     --resource-group $RESOURCE_GROUP \
     --vnet-name spoke1 \
-    --address-prefix 10.1.2.0/24 >/dev/null
+    --address-prefix 172.16.1.0/24 >/dev/null
   export APP_SUBNET_ID=$(az network vnet subnet show --resource-group $RESOURCE_GROUP --vnet-name spoke1 --name app-subnet --query id -o tsv)
 
   az network vnet subnet create --resource-group $RESOURCE_GROUP \
     --vnet-name spoke1 \
     --name apiserver-subnet \
     --delegations Microsoft.ContainerService/managedClusters \
-    --address-prefix 10.1.3.0/28 >/dev/null
+    --address-prefix 172.16.2.0/28 >/dev/null
   export APISERVER_SUBNET_ID=$(az network vnet subnet show --resource-group $RESOURCE_GROUP --vnet-name spoke1 --name apiserver-subnet --query id -o tsv)
 
   az network vnet subnet create --resource-group $RESOURCE_GROUP \
     --vnet-name spoke1 \
     --name aci-subnet \
     --delegations Microsoft.ContainerInstance/containerGroups \
-    --address-prefix 10.1.4.0/24 >/dev/null
+    --address-prefix 172.16.3.0/24 >/dev/null
   export ACI_SUBNET_ID=$(az network vnet subnet show --resource-group $RESOURCE_GROUP --vnet-name spoke1 --name aci-subnet --query id -o tsv)
 
   # Create subnets in spoke2 VNet
@@ -373,7 +373,7 @@ create_firewall() {
     --destination-addresses "*" \
     --destination-ports "*" \
     --ip-protocols "Any" \
-    --source-addresses "10.1.1.0/24" \
+    --source-addresses "10.1.0.0/26" \
     --policy-name "${FIREWALL_NAME}-policy" \
     --resource-group $RESOURCE_GROUP \
     --rule-collection-group-name "NetworkRuleCollectionGroup" >/dev/null
@@ -387,10 +387,10 @@ create_firewall() {
     --rule-name "AllowSpoke1ToSpoke2" \
     --rule-type NetworkRule \
     --description "Allow communication from spoke1 to spoke2" \
-    --destination-addresses "10.2.0.0/16" \
+    --destination-addresses "10.2.0.0/22" \
     --destination-ports "*" \
     --ip-protocols "Any" \
-    --source-addresses "10.1.0.0/16" \
+    --source-addresses "10.1.0.0/22" "172.16.0.0/22" \
     --policy-name "${FIREWALL_NAME}-policy" \
     --resource-group $RESOURCE_GROUP \
     --rule-collection-group-name "NetworkRuleCollectionGroup" >/dev/null
@@ -404,10 +404,10 @@ create_firewall() {
     --rule-name "AllowSpoke2ToSpoke1" \
     --rule-type NetworkRule \
     --description "Allow communication from spoke2 to spoke1" \
-    --destination-addresses "10.1.0.0/16" \
+    --destination-addresses "10.1.0.0/22" "172.16.0.0/22" \
     --destination-ports "*" \
     --ip-protocols "Any" \
-    --source-addresses "10.2.0.0/16" \
+    --source-addresses "10.2.0.0/22" \
     --policy-name "${FIREWALL_NAME}-policy" \
     --resource-group $RESOURCE_GROUP \
     --rule-collection-group-name "NetworkRuleCollectionGroup" >/dev/null
@@ -429,7 +429,7 @@ create_firewall() {
     --rule-name "AllowWebTrafficFromEgress" \
     --rule-type ApplicationRule \
     --description "Allow HTTP/HTTPS traffic from egress subnet" \
-    --source-addresses "10.1.1.0/24" \
+    --source-addresses "10.1.0.0/26" \
     --protocols "Http=80" "Https=443" \
     --target-fqdns "*" \
     --policy-name "${FIREWALL_NAME}-policy" \
@@ -444,10 +444,10 @@ create_firewall() {
   echo "  - Public IP: $(az network public-ip show --name "${FIREWALL_NAME}-pip" --resource-group $RESOURCE_GROUP --query ipAddress -o tsv)"
   echo ""
   echo "🔥 Firewall Policy Rules (Hub and Spoke Model with Transitive Routing):"
-  echo "  - Network Rules: Allow ALL outbound traffic ONLY from egress subnet (10.1.1.0/24)"
+  echo "  - Network Rules: Allow ALL outbound traffic ONLY from egress subnet (10.1.0.0/26)"
   echo "  - Application Rules: Allow HTTP/HTTPS traffic ONLY from egress subnet to any FQDN"
-  echo "  - Inter-VNet Rules: Allow spoke1 (10.1.0.0/16) ↔ spoke2 (10.2.0.0/16) communication"
-  echo "  - App subnet (10.1.2.0/24): BLOCKED by NSG - no firewall rules needed"
+  echo "  - Inter-VNet Rules: Allow spoke1 (10.1.0.0/22 + 172.16.0.0/22) ↔ spoke2 (10.2.0.0/22) communication"
+  echo "  - App subnet (172.16.1.0/24): BLOCKED by NSG - no firewall rules needed"
   echo "  - DNS Proxy: Enabled for DNS resolution"
   echo "  - Threat Intelligence: Enabled in Alert mode"
   echo ""
@@ -498,7 +498,7 @@ function create_route_table() {
   az network route-table route create --resource-group $RESOURCE_GROUP \
     --route-table-name egress-route-table \
     --name to-spoke2 \
-    --address-prefix 10.2.0.0/16 \
+    --address-prefix 10.2.0.0/22 \
     --next-hop-type VirtualAppliance \
     --next-hop-ip-address $FIREWALL_PRIVATE_IP >/dev/null
 
@@ -528,7 +528,7 @@ function create_route_table() {
   az network route-table route create --resource-group $RESOURCE_GROUP \
     --route-table-name app-route-table \
     --name to-spoke2 \
-    --address-prefix 10.2.0.0/16 \
+    --address-prefix 10.2.0.0/22 \
     --next-hop-type VirtualAppliance \
     --next-hop-ip-address $FIREWALL_PRIVATE_IP >/dev/null
 
@@ -549,8 +549,17 @@ function create_route_table() {
   echo "Creating route for spoke2 to spoke1 via firewall..."
   az network route-table route create --resource-group $RESOURCE_GROUP \
     --route-table-name spoke2-route-table \
-    --name to-spoke1 \
-    --address-prefix 10.1.0.0/16 \
+    --name to-spoke1-10x \
+    --address-prefix 10.1.0.0/22 \
+    --next-hop-type VirtualAppliance \
+    --next-hop-ip-address $FIREWALL_PRIVATE_IP >/dev/null
+
+  # Add route for spoke2 to spoke1 172.16.x.x range via firewall (transitive routing)
+  echo "Creating route for spoke2 to spoke1 172.16.x.x range via firewall..."
+  az network route-table route create --resource-group $RESOURCE_GROUP \
+    --route-table-name spoke2-route-table \
+    --name to-spoke1-172x \
+    --address-prefix 172.16.0.0/22 \
     --next-hop-type VirtualAppliance \
     --next-hop-ip-address $FIREWALL_PRIVATE_IP >/dev/null
 
@@ -637,15 +646,17 @@ display_architecture_summary() {
   echo "   ├── dns-inbound-subnet (10.0.10.0/28) - DNS resolver inbound"
   echo "   └── dns-outbound-subnet (10.0.20.0/28) - DNS resolver outbound"
   echo ""
-  echo "🏭 SPOKE VNET (spoke1 - 10.1.0.0/16):"
-  echo "   ├── app-subnet (10.1.2.0/24) - AKS app nodes (DIRECT INTERNET ACCESS)"
-  echo "   │   └── Routes traffic directly to internet (no firewall filtering)"
-  echo "   ├── egress-subnet (10.1.1.0/24) - AKS egress nodes (FIREWALL ROUTED)"
-  echo "   │   └── Routes traffic through Azure Firewall for controlled access"
-  echo "   ├── apiserver-subnet (10.1.3.0/28) - AKS API server"
-  echo "   └── aci-subnet (10.1.4.0/24) - Container instances (unused)"
+  echo "🏭 SPOKE VNET (spoke1 - MULTI-ADDRESS SPACE):"
+  echo "   ├── Address Space 1: 10.1.0.0/22 (Routable through firewall)"
+  echo "   │   └── egress-subnet (10.1.0.0/26) - AKS egress nodes (FIREWALL ROUTED)"
+  echo "   │       └── Routes traffic through Azure Firewall for controlled access"
+  echo "   ├── Address Space 2: 172.16.0.0/22 (Non-routable private range)"
+  echo "   │   ├── app-subnet (172.16.1.0/24) - AKS app nodes (DIRECT INTERNET ACCESS)"
+  echo "   │   │   └── Routes traffic directly to internet (no firewall filtering)"
+  echo "   │   ├── apiserver-subnet (172.16.2.0/28) - AKS API server"
+  echo "   │   └── aci-subnet (172.16.3.0/24) - Container instances (unused)"
   echo ""
-  echo "🏭 SPOKE VNET (spoke2 - 10.2.0.0/16):"
+  echo "🏭 SPOKE VNET (spoke2 - 10.2.0.0/22):"
   echo "   └── aci-subnet-spoke2 (10.2.1.0/24) - ACI containers (ACTIVE DEPLOYMENT)"
   echo "       └── Full VNet peering with hub1 (transitive routing enabled)"
   echo ""
@@ -653,12 +664,12 @@ display_architecture_summary() {
   echo "   ├── Name: $FIREWALL_NAME"
   echo "   ├── Private IP: $(az network firewall show --name $FIREWALL_NAME --resource-group $RESOURCE_GROUP --query "ipConfigurations[0].privateIPAddress" -o tsv 2>/dev/null || echo 'Not available')"
   echo "   ├── Policy: Modern policy-based rules"
-  echo "   └── Rules: Allow all outbound from egress subnet (10.1.1.0/24)"
+  echo "   └── Rules: Allow all outbound from egress subnet (10.1.0.0/26)"
   echo ""
   echo "🌐 CONNECTIVITY MODEL:"
-  echo "   ├── App subnet → DIRECT to Internet (no filtering)"
+  echo "   ├── App subnet (172.16.1.0/24) → DIRECT to Internet (no filtering)"
   echo "   ├── App subnet → spoke2 via Azure Firewall (transitive routing)"
-  echo "   ├── Egress subnet → Hub Firewall → Internet (controlled access)"
+  echo "   ├── Egress subnet (10.1.0.0/26) → Hub Firewall → Internet (controlled access)"
   echo "   ├── Egress subnet → spoke2 via Azure Firewall (transitive routing)"
   echo "   ├── spoke2 → spoke1 via Azure Firewall (transitive routing)"
   echo "   ├── spoke2 → Internet DIRECT (no filtering)"
@@ -667,9 +678,17 @@ display_architecture_summary() {
   echo "   └── **TRANSITIVE ROUTING ENABLED**: spoke1 ↔ spoke2 via Azure Firewall"
   echo ""
   echo "🚀 AKS CLUSTER:"
-  echo "   ├── App nodes: Deploy in app-subnet (direct internet access)"
-  echo "   ├── Egress nodes: Deploy in egress-subnet (controlled via firewall)"
-  echo "   └── API server: Private endpoint in apiserver-subnet"
+  echo "   ├── App nodes: Deploy in app-subnet (172.16.1.0/24) - direct internet access"
+  echo "   ├── Egress nodes: Deploy in egress-subnet (10.1.0.0/26) - controlled via firewall"
+  echo "   └── API server: Private endpoint in apiserver-subnet (172.16.2.0/28)"
+  echo ""
+  echo "🔗 MULTI-ADDRESS SPACE ARCHITECTURE:"
+  echo "   ├── Purpose: Demonstrate routable vs non-routable address spaces"
+  echo "   ├── 10.1.0.0/22: Routable range for egress traffic through firewall"
+  echo "   ├── 172.16.0.0/22: Non-routable private range for app workloads"
+  echo "   ├── Benefit: App workloads use private addressing while maintaining"
+  echo "   │            controlled egress capability via dedicated subnet"
+  echo "   └── Use Case: Segregate egress traffic from internal app communication"
   echo ""
   echo "🐳 ACI DEPLOYMENT:"
   echo "   ├── Location: spoke2/aci-subnet-spoke2 (10.2.1.0/24)"
@@ -1141,6 +1160,13 @@ execute_all() {
   echo "   • AKS Cluster: $CLUSTER_NAME"
   echo "   • Firewall: $FIREWALL_NAME"
   echo "   • Location: $LOCATION"
+  echo ""
+  echo "🔗 Network Configuration:"
+  echo "   • Spoke1 VNet: Multi-address space (10.1.0.0/22 + 172.16.0.0/22)"
+  echo "   • Egress Subnet: 10.1.0.0/26 (routable through firewall)"
+  echo "   • App Subnet: 172.16.1.0/24 (non-routable, direct internet)"
+  echo "   • API Server: 172.16.2.0/28 (private endpoint)"
+  echo "   • Spoke2 VNet: 10.2.0.0/22 (transitive routing enabled)"
   echo ""
   echo "💡 Next Steps:"
   echo "   1. Test connectivity from both node pools"

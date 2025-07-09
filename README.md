@@ -549,19 +549,53 @@ See [network-deployment-options.md](./network-deployment-options.md) for more de
 
 - Address space: 10.0.0.0/16
 - Subnets:
-  - AzureFirewallSubnet: 10.0.0.0/24
-  - DnsResolverSubnet: 10.0.1.0/24
-  - AzureBastionSubnet: 10.0.2.0/24
+  - AzureFirewallSubnet: 10.0.2.0/24
+  - AzureFirewallManagementSubnet: 10.0.3.0/24
+  - subnet-1: 10.0.1.0/24
+  - dns-inbound-subnet: 10.0.10.0/28
+  - dns-outbound-subnet: 10.0.20.0/28
 
 ### Spoke Networks
 
-- Spoke 1:
-  - Address space: 10.1.0.0/16
-  - Subnets:
-    - Default: 10.1.0.0/24
-    - Workload: 10.1.1.0/24
+- Spoke 1 (Multi-Address Space Architecture):
+  - Address space 1: 10.1.0.0/22 (Routable through firewall)
+    - egress-subnet: 10.1.0.0/26 - Controlled egress through firewall
+  - Address space 2: 172.16.0.0/22 (Non-routable private range)
+    - app-subnet: 172.16.1.0/24 - AKS app nodes with direct internet access
+    - apiserver-subnet: 172.16.2.0/28 - AKS API server private endpoint
+    - aci-subnet: 172.16.3.0/24 - Container instances (unused)
 
 - Spoke 2:
+  - Address space: 10.2.0.0/22
+  - Subnets:
+    - aci-subnet-spoke2: 10.2.1.0/24 - Active ACI deployment
+
+## 📊 Network Architecture Table
+
+| VNet | Address Space | Subnet Name | Subnet CIDR | Purpose | Egress Path | Notes |
+|------|---------------|-------------|-------------|---------|-------------|-------|
+| **hub1** | 10.0.0.0/16 | AzureFirewallSubnet | 10.0.2.0/24 | Azure Firewall | N/A | Central firewall for traffic inspection |
+| | | AzureFirewallManagementSubnet | 10.0.3.0/24 | Firewall Management | N/A | Management plane for firewall |
+| | | subnet-1 | 10.0.1.0/24 | General Hub Services | Direct | General hub infrastructure |
+| | | dns-inbound-subnet | 10.0.10.0/28 | DNS Resolver Inbound | N/A | Private DNS resolution |
+| | | dns-outbound-subnet | 10.0.20.0/28 | DNS Resolver Outbound | N/A | Private DNS forwarding |
+| **spoke1** | 10.1.0.0/22 | egress-subnet | 10.1.0.0/26 | AKS Egress Nodes | Via Firewall | Controlled egress through firewall |
+| | 172.16.0.0/22 | app-subnet | 172.16.1.0/24 | AKS App Nodes | Direct Internet | High-performance direct egress |
+| | | apiserver-subnet | 172.16.2.0/28 | AKS API Server | Private | Private API server endpoint |
+| | | aci-subnet | 172.16.3.0/24 | Container Instances | Direct Internet | Unused - available for ACI |
+| **spoke2** | 10.2.0.0/22 | aci-subnet-spoke2 | 10.2.1.0/24 | ACI Containers | Direct Internet | Active ACI deployment |
+
+### Multi-Address Space Benefits
+
+| Feature | 10.1.0.0/22 (Routable) | 172.16.0.0/22 (Private) |
+|---------|-------------------------|--------------------------|
+| **Purpose** | Firewall-controlled egress | Non-routable app workloads |
+| **Egress Control** | All traffic via Azure Firewall | Direct internet or firewall for inter-VNet |
+| **Security Level** | High - full inspection | Medium - network-level filtering |
+| **Performance** | Moderate (firewall overhead) | High (direct routing) |
+| **Use Cases** | Compliance workloads, sensitive data | High-throughput apps, internal services |
+| **IP Allocation** | Smaller /26 for efficiency | Larger /24 for application density |
+
 ## 📝 Legacy Notes and Development History
 
 ### Architecture Evolution
