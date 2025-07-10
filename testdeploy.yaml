@@ -1,21 +1,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: netshoot-int
+  name: test-static-egress
   labels:
-    app: netshoot-int
+    app: test-static-egress
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: netshoot-int
+      app: test-static-egress
   template:
     metadata:
       annotations:
        # kubernetes.azure.com/static-gateway-configuration: egresgw
        kubernetes.azure.com/static-gateway-configuration: egresgw5
       labels:
-        app: netshoot-int
+        app: test-static-egress
     spec:
       containers:
       - name: netshoot
@@ -31,18 +31,18 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: netshoot-int-default
+  name: test-negative-connectivity
   labels:
-    app: netshoot-int-default
+    app: test-negative-connectivity
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: netshoot-int-default
+      app: test-negative-connectivity
   template:
     metadata:
       labels:
-        app: netshoot-int-default
+        app: test-negative-connectivity
     spec:
       containers:
       - name: netshoot-deault
