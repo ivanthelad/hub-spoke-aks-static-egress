@@ -2,19 +2,32 @@
 # 🏗️  HUB AND SPOKE AKS DEPLOYMENT SCRIPT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-PREFIX="88"
-RESOURCE_GROUP="${PREFIX}-aks-egress"
-CLUSTER_NAME="${PREFIX}-cilium-aks-cluster-egress"
-LOCATION="swedencentral"
-NODE_SIZE="Standard_DS3_v2"
-NODE_SIZE2="Standard_DS2_v2"
-NODE_COUNT=3
-K8S_VERSION="1.31"
-IDENTITY_NAME="${CLUSTER_NAME}-identity"
-ACI_NAME="srcip-http2"
-NATGW_NAME="${PREFIX}-natgw"
-PUBLIC_IP_NAME="${PREFIX}-natgw-pip"
-FIREWALL_NAME="${PREFIX}-firewall"
+# Load environment variables from .env file
+if [ -f .env ]; then
+    echo "Loading configuration from .env file..."
+    source .env
+else
+    echo "Warning: .env file not found. Using default values..."
+    # Default values (fallback if .env is missing)
+    PREFIX="88"
+    RESOURCE_GROUP="${PREFIX}-aks-egress"
+    CLUSTER_NAME="${PREFIX}-cilium-aks-cluster-egress"
+    LOCATION="swedencentral"
+    NODE_SIZE="Standard_DS3_v2"
+    NODE_SIZE2="Standard_DS2_v2"
+    NODE_COUNT=3
+    K8S_VERSION="1.31"
+    IDENTITY_NAME="${CLUSTER_NAME}-identity"
+    ACI_NAME="srcip-http2"
+    NATGW_NAME="${PREFIX}-natgw"
+    PUBLIC_IP_NAME="${PREFIX}-natgw-pip"
+    FIREWALL_NAME="${PREFIX}-firewall"
+    PUBLIC_ACI_NAME="srcip-http-public"
+    PUBLIC_ACI_IMAGE="mendhak/http-https-echo:37"
+    PUBLIC_ACI_PORT="8080"
+    ENABLE_PROGRESS=true
+    TOTAL_STEPS=9
+fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 📊 PROGRESS TRACKING CONFIGURATION
@@ -46,7 +59,6 @@ FIREWALL_NAME="${PREFIX}-firewall"
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Progress tracking variables
-TOTAL_STEPS=9
 CURRENT_STEP=0
 ENABLE_PROGRESS=${ENABLE_PROGRESS:-true}
 
@@ -691,9 +703,12 @@ display_architecture_summary() {
   echo "   └── Use Case: Segregate egress traffic from internal app communication"
   echo ""
   echo "🐳 ACI DEPLOYMENT:"
-  echo "   ├── Location: spoke2/aci-subnet-spoke2 (10.2.1.0/24)"
-  echo "   ├── Peering: Full VNet peering with hub1"
-  echo "   └── Container: $ACI_NAME (mendhak/http-https-echo:37)"
+  echo "   ├── Private ACI: spoke2/aci-subnet-spoke2 (10.2.1.0/24)"
+  echo "   │   ├── Container: $ACI_NAME (mendhak/http-https-echo:37)"
+  echo "   │   └── Access: Via VNet peering through hub1"
+  echo "   └── Public ACI: Internet-facing"
+  echo "       ├── Container: $PUBLIC_ACI_NAME ($PUBLIC_ACI_IMAGE)"
+  echo "       └── Access: Direct public internet access"
   echo ""
   echo "=============================================="
 }
@@ -724,6 +739,32 @@ create_aci_container() {
   export ACI_IP=$(az container show --name $ACI_NAME --resource-group $RESOURCE_GROUP --query "ipAddress.ip" --output tsv)
   echo "ACI IP Address: $ACI_IP"
   echo "Container instance created successfully in the spoke2 ACI subnet with full VNet peering."
+
+  # Deploy public ACI container for external testing
+  echo ""
+  echo "Deploying public ACI container for external connectivity testing..."
+  az container create \
+    --name $PUBLIC_ACI_NAME \
+    --resource-group $RESOURCE_GROUP \
+    --image $PUBLIC_ACI_IMAGE \
+    --ports $PUBLIC_ACI_PORT \
+    --protocol TCP \
+    --restart-policy OnFailure \
+    --location $LOCATION \
+    --ip-address Public \
+    --os-type linux \
+    --memory 1.5 \
+    --cpu 1
+
+  # Get and display public ACI container details
+  export PUBLIC_ACI_IP=$(az container show --name $PUBLIC_ACI_NAME --resource-group $RESOURCE_GROUP --query "ipAddress.ip" --output tsv)
+  echo "Public ACI container $PUBLIC_ACI_NAME created successfully."
+  echo "Public ACI IP Address: $PUBLIC_ACI_IP"
+  echo "Public ACI endpoint: http://$PUBLIC_ACI_IP:$PUBLIC_ACI_PORT"
+  echo ""
+  echo "ACI Deployment Summary:"
+  echo "  Private ACI (spoke2): $ACI_NAME @ $ACI_IP"
+  echo "  Public ACI (internet): $PUBLIC_ACI_NAME @ $PUBLIC_ACI_IP:$PUBLIC_ACI_PORT"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════

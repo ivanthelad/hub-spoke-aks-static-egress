@@ -2,6 +2,16 @@
 
 This project demonstrates how to achieve **static egress IPs** for Azure Kubernetes Service (AKS) workloads using a hub-and-spoke network architecture with Azure Firewall.
 
+## 🏗️ Architecture Overview
+
+![Hub-and-Spoke Architecture](assets/arch.png)
+*Hub-and-spoke network topology with Azure Firewall providing centralized egress control and static IP addressing for AKS workloads.*
+
+## 🌊 Traffic Flow
+
+![Traffic Flow Diagram](assets/flow.png)
+*Traffic routing patterns showing how pods with static egress annotations flow through Azure Firewall while regular pods use direct internet access.*
+
 ## 🎯 What This Demo Shows
 
 **Problem**: By default, AKS pods get random egress IP addresses, making it difficult to whitelist IPs with external services.
@@ -50,6 +60,22 @@ This project demonstrates how to achieve **static egress IPs** for Azure Kuberne
 - kubectl
 - Bash shell
 
+### Configuration
+Copy and customize the environment variables:
+```bash
+# Copy the example configuration
+cp .env.example .env
+
+# Edit the configuration to match your requirements
+nano .env
+```
+
+Key configuration variables in `.env`:
+- `PREFIX`: Resource naming prefix (default: "88")
+- `LOCATION`: Azure region (default: "swedencentral")
+- `NODE_COUNT`: AKS node count (default: 3)
+- `PUBLIC_ACI_NAME`: Name for public ACI container for testing
+
 ### Deploy Everything
 ```bash
 # Clone and deploy
@@ -63,9 +89,13 @@ cd hub-spoke-aks-static-egress
 # Deploy test pods
 kubectl apply -f testdeploy.yaml
 
-# Run connectivity test
+# Run comprehensive connectivity test
 ./test-connectivity.sh
 ```
+
+## 📖 Detailed Deployment Guide
+
+For comprehensive deployment instructions and troubleshooting, see [DEPLOYMENT.md](DEPLOYMENT.md)
 
 ## 🧪 How Static Egress Works
 
@@ -91,6 +121,7 @@ metadata:
 Comprehensive test that validates:
 - **Positive Test**: Pod with static egress annotation can reach spoke2 via firewall
 - **Negative Test**: Pod without annotation cannot reach spoke2 (blocked)
+- **Static Egress Validation**: Tests actual egress IP using public ACI container
 
 ```bash
 ./test-connectivity.sh
@@ -104,6 +135,24 @@ Network diagnostics for troubleshooting:
 
 ## 🔧 Configuration
 
+### Environment Configuration
+
+All deployment and test scripts use a centralized `.env` file for configuration. Key settings include:
+
+```bash
+# Resource naming and location
+PREFIX="88"                    # Prefix for all Azure resources
+LOCATION="swedencentral"       # Azure region for deployment
+
+# AKS cluster settings
+NODE_COUNT=3                   # Number of AKS nodes
+K8S_VERSION="1.31"            # Kubernetes version
+
+# Container instances
+ACI_NAME="srcip-http2"         # Private ACI in spoke2
+PUBLIC_ACI_NAME="srcip-http-public"  # Public ACI for testing
+```
+
 ### Key Components
 
 **testdeploy.yaml** contains two test deployments:
@@ -112,7 +161,7 @@ Network diagnostics for troubleshooting:
 
 **Static Gateway Configuration**:
 ```yaml
-apiVersion: egressgateway.kubernetes.azure.com/v1alpha1
+apiVersion: egressGateway.kubernetes.azure.com/v1alpha1
 kind: StaticGatewayConfiguration
 metadata:
   name: egresgw5
@@ -140,25 +189,21 @@ spec:
 
 ## 📁 Project Files
 
-```
+```text
 hub-spoke-aks-static-egress/
+├── .env                         # Environment configuration file
+├── .env.example                 # Example configuration file
 ├── deployoss.sh                 # Main deployment script
 ├── test-connectivity.sh         # End-to-end connectivity test
 ├── diagnose-connectivity.sh     # Network troubleshooting
 ├── testdeploy.yaml              # Test pod deployments
 ├── testdeploy.generated.yaml    # Generated test deployments
-└── README.md                   # This documentation
+└── README.md                    # This documentation
 ```
 
-## � Use Cases
 
-**When you need static egress IPs:**
-- External APIs that require IP whitelisting
-- Compliance requirements for audit trails
-- Consistent egress behavior for specific workloads
-- Integration with legacy systems that filter by IP
 
-**Example**: A financial application needs to call a third-party API that only allows specific IP addresses. By using the static egress configuration, the pod's outbound traffic will always come from the firewall's static public IP.
+
 
 ## 🔍 Validation
 
@@ -168,8 +213,12 @@ After deployment, verify static egress is working:
 2. **Test positive case**: Pod with annotation reaches external service via static IP
 3. **Test negative case**: Pod without annotation is blocked or uses different IP
 4. **Verify routing**: Traffic flows through firewall as expected
+5. **Validate egress IP**: Confirm static IP consistency using public ACI container
 
-The test scripts automate this validation process.
+The test scripts automate this validation process and provide comprehensive testing of:
+- **Internal routing**: spoke-to-spoke communication through firewall
+- **External egress**: static IP validation via public internet endpoints
+- **Access control**: verification that non-annotated pods are properly restricted
 
 ---
 
@@ -179,5 +228,4 @@ This demo shows how to implement predictable, static egress IP addresses for AKS
 
 ---
 
-This demo shows how to implement predictable, static egress IP addresses for AKS workloads using Azure's native networking capabilities. 
-  
+This demo shows how to implement predictable, static egress IP addresses for AKS workloads using Azure's native networking capabilities.

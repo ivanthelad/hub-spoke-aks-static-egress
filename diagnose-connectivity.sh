@@ -4,11 +4,20 @@
 # 🔍 SPOKE1 TO SPOKE2 CONNECTIVITY TROUBLESHOOTING SCRIPT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-PREFIX="88"
-RESOURCE_GROUP="${PREFIX}-aks-egress"
-CLUSTER_NAME="${PREFIX}-cilium-aks-cluster-egress"
-FIREWALL_NAME="${PREFIX}-firewall"
-ACI_NAME="srcip-http2"
+# Load environment variables from .env file
+if [ -f .env ]; then
+    echo "Loading configuration from .env file..."
+    source .env
+else
+    echo "Warning: .env file not found. Using default values..."
+    # Default values (fallback if .env is missing)
+    PREFIX="88"
+    RESOURCE_GROUP="${PREFIX}-aks-egress"
+    CLUSTER_NAME="${PREFIX}-cilium-aks-cluster-egress"
+    FIREWALL_NAME="${PREFIX}-firewall"
+    ACI_NAME="srcip-http2"
+    PUBLIC_ACI_NAME="srcip-http-public"
+fi
 
 echo "🔍 DIAGNOSING SPOKE1 TO SPOKE2 CONNECTIVITY ISSUES"
 echo "════════════════════════════════════════════════════"
@@ -38,7 +47,8 @@ check_resource "Hub VNet" "az network vnet show --name hub1 --resource-group $RE
 check_resource "Spoke1 VNet" "az network vnet show --name spoke1 --resource-group $RESOURCE_GROUP"  
 check_resource "Spoke2 VNet" "az network vnet show --name spoke2 --resource-group $RESOURCE_GROUP"
 check_resource "Azure Firewall" "az network firewall show --name $FIREWALL_NAME --resource-group $RESOURCE_GROUP"
-check_resource "ACI Container" "az container show --name $ACI_NAME --resource-group $RESOURCE_GROUP"
+check_resource "ACI Container (Private)" "az container show --name $ACI_NAME --resource-group $RESOURCE_GROUP"
+check_resource "ACI Container (Public)" "az container show --name $PUBLIC_ACI_NAME --resource-group $RESOURCE_GROUP"
 
 # 2. Check VNet Peering
 echo ""
@@ -128,9 +138,18 @@ FIREWALL_IP=$(az network firewall show --name $FIREWALL_NAME --resource-group $R
   --query "ipConfigurations[0].privateIPAddress" -o tsv 2>/dev/null)
 echo "Firewall Private IP: ${FIREWALL_IP:-'Not available'}"
 
+FIREWALL_PUBLIC_IP=$(az network firewall show --name $FIREWALL_NAME --resource-group $RESOURCE_GROUP \
+  --query "ipConfigurations[0].publicIpAddress.id" -o tsv 2>/dev/null | \
+  xargs -I {} az network public-ip show --ids {} --query "ipAddress" -o tsv 2>/dev/null)
+echo "Firewall Public IP: ${FIREWALL_PUBLIC_IP:-'Not available'}"
+
 ACI_IP=$(az container show --name $ACI_NAME --resource-group $RESOURCE_GROUP \
   --query "ipAddress.ip" -o tsv 2>/dev/null)
 echo "ACI Container IP (spoke2): ${ACI_IP:-'Not available'}"
+
+PUBLIC_ACI_IP=$(az container show --name $PUBLIC_ACI_NAME --resource-group $RESOURCE_GROUP \
+  --query "ipAddress.ip" -o tsv 2>/dev/null)
+echo "Public ACI Container IP: ${PUBLIC_ACI_IP:-'Not available'}"
 
 # 7. Test Commands
 echo ""
@@ -141,6 +160,11 @@ echo "To test connectivity from AKS pods in spoke1 to ACI in spoke2:"
 echo "kubectl run test-pod --image=busybox --rm -it --restart=Never -- /bin/sh"
 echo "# Inside the pod, run:"
 echo "wget -O- http://${ACI_IP:-'<ACI_IP>'}:8080"
+echo ""
+
+echo "To test static egress IP from AKS pods to public ACI:"
+echo "kubectl run test-static-egress --image=curlimages/curl --rm -it --restart=Never -- curl -s http://${PUBLIC_ACI_IP:-'<PUBLIC_ACI_IP>'}:${PUBLIC_ACI_PORT:-8080}"
+echo "# Look for 'x-forwarded-for' in the response to see the egress IP"
 echo ""
 
 echo "To test from ACI container to spoke1:"
@@ -163,6 +187,11 @@ fi
 if [ -z "$ACI_IP" ]; then
     echo "❌ ACI Container IP not available - container may not be deployed"
     echo "   → Run: ./deployoss.sh --step aci"
+fi
+
+if [ -z "$PUBLIC_ACI_IP" ]; then
+    echo "❌ Public ACI Container IP not available - container may not be deployed"
+    echo "   → Public ACI container is used for static egress IP validation"
 fi
 
 echo ""
