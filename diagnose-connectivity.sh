@@ -4,7 +4,7 @@
 # 🔍 SPOKE1 TO SPOKE2 CONNECTIVITY TROUBLESHOOTING SCRIPT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-PREFIX="87"
+PREFIX="88"
 RESOURCE_GROUP="${PREFIX}-aks-egress"
 CLUSTER_NAME="${PREFIX}-cilium-aks-cluster-egress"
 FIREWALL_NAME="${PREFIX}-firewall"
