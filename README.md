@@ -1,5 +1,54 @@
 # Azure Hub-and-Spoke AKS Architecture with Static Egress IPs
 
+![Architecture Diagram](./assets/arch.png)
+
+## 🌟 Architecture Overview
+
+This architecture demonstrates a **multi-address space hub-and-spoke design** with **dual egress patterns** for Azure Kubernetes Service (AKS). The design provides both **high-performance direct internet access** and **security-controlled firewall egress** within a single AKS cluster, enabling workloads to choose their egress path based on compliance and performance requirements.
+
+### Key Architectural Concepts
+
+**🏗️ Multi-Address Space Design**: Spoke1 VNet uses two distinct address spaces (10.1.0.0/22 and 172.16.0.0/22) to segregate traffic flows and provide different egress behaviors within the same cluster.
+
+**🚦 Dual Egress Patterns**:
+- **Direct Egress** (172.16.1.0/24): AKS nodes with NAT Gateway for high-throughput, low-latency internet access
+- **Controlled Egress** (10.1.0.0/26): AKS nodes routed through Azure Firewall for compliance and security inspection
+
+**🔄 Transitive Routing**: Hub firewall enables secure spoke-to-spoke communication with full traffic inspection and logging capabilities.
+
+**📍 Static IP Guarantee**: Both egress paths use static public IPs, enabling external service whitelisting and consistent audit trails.
+
+### Traffic Flow Patterns
+
+![Traffic Flow Diagram](./assets/flow.png)
+
+**🌐 End-to-End Traffic Flows**: The diagram above illustrates the complete traffic flow patterns within the hub-and-spoke architecture, showcasing how different types of traffic are routed through the network based on their security and performance requirements.
+* pod get annotated with "kubernetes.azure.com/static-gateway-configuration: egresgw5" 
+* Traffic to ACI container gets routed to egress nodes 
+* Egress nodes can route to the 10.x range 
+* ACi Container responds with a egress cidr range confirming the concept
+  
+
+#### Key Traffic Flow Scenarios
+
+**🔄 Inter-Spoke Communication**:
+- **Spoke1 ↔ Spoke2**: All cross-spoke traffic routes through the Azure Firewall in the hub for security inspection
+- **Route Path**: Spoke1 Subnet → Hub Firewall → Spoke2 Subnet
+- **Security**: Full packet inspection, logging, and policy enforcement
+
+**🌍 Internet Egress Flows**:
+- **Direct Egress** (172.16.1.0/24): App subnet → NAT Gateway → Internet (static public IP)
+- **Controlled Egress** (10.1.0.0/26): Egress subnet → Azure Firewall → Internet (static public IP)
+- **Hybrid Model**: Single AKS cluster with workloads choosing egress path based on subnet placement
+
+**🔒 Private Connectivity**:
+- **API Server Access**: Private endpoints in dedicated subnet (172.16.2.0/28)
+- **Internal Services**: Hub DNS resolvers provide private name resolution
+- **Management Traffic**: Firewall management subnet isolated from data plane
+
+
+---
+
 This project implements a comprehensive Azure Hub-and-Spoke network architecture featuring Azure Kubernetes Service (AKS) with **static egress IP patterns**, Azure Firewall, and transitive routing capabilities. The architecture demonstrates how to achieve predictable, consistent egress IP addresses for AKS workloads - enabling external service integrations and compliance requirements through subnet-based routing rather than dynamic pod scheduling.
 
 ## 🏗️ Architecture Concept
@@ -12,43 +61,37 @@ The **Hub-and-Spoke** architecture is a network design pattern that centralizes 
 - **Static Egress IPs**: Predictable, consistent egress IP addresses for external integrations
 - **Subnet-Based Routing**: Network-level traffic steering rather than application-level routing
 - **Dual Egress Patterns**: Demonstrates both direct and firewall-controlled internet access
-- **Performance vs Security**: Balance between network performance and security requirements
 - **Centralized Security**: Single point of egress control via Azure Firewall for sensitive workloads
 
 **This architecture solves real-world challenges:**
 - **External Service Integration**: Third-party APIs and services can whitelist specific IP ranges
 - **Compliance Requirements**: Predictable egress IPs enable consistent audit trails and reporting
 - **Network Monitoring**: Simplified egress traffic analysis with known, static IP addresses
-- **Cost Management**: Shared firewall infrastructure across multiple environments
-- **Security Policies**: Consistent application of security rules based on egress IP patterns
 
 ### Key Components
 
-
 #### 🏢 Hub VNet (10.0.0.0/16)
+- **Azure Firewall Subnet** (10.0.2.0/24): Central security appliance for traffic filtering and NAT
+- **Management Subnet** (10.0.3.0/24): Firewall management plane  
+- **General Services** (10.0.1.0/24): Shared infrastructure components
+- **DNS Resolver** (10.0.10.0/28, 10.0.20.0/28): Private DNS resolution
 
-- **Azure Firewall**: Central security appliance for traffic filtering and NAT
-- **Firewall Subnet**: Dedicated subnet for Azure Firewall deployment
-- **Management Services**: Shared infrastructure components
+#### 🏭 Spoke1 VNet - Multi-Address Space AKS
+**Address Space 1: 10.1.0.0/22** (Firewall-routed)
+- **Egress Subnet** (10.1.0.0/26): AKS nodes with controlled egress via Azure Firewall
 
+**Address Space 2: 172.16.0.0/22** (Direct-routed)  
+- **App Subnet** (172.16.1.0/24): AKS nodes with direct internet access via NAT Gateway
+- **API Server Subnet** (172.16.2.0/28): Private AKS API server endpoints
+- **ACI Subnet** (172.16.3.0/24): Available for container instances
 
-#### 🏭 Spoke1 VNet (10.1.0.0/16) - AKS Production
-
-- **App Subnet**: Production AKS nodes with direct internet access
-- **Egress Subnet**: AKS egress nodes routed through Azure Firewall
-- **API Server Subnet**: Private AKS API server endpoints
-
-
-#### 🏭 Spoke2 VNet (10.2.0.0/16) - Container Services
-
-
-- **ACI Subnet**: Azure Container Instances for lightweight workloads
+#### 🏭 Spoke2 VNet (10.2.0.0/22) - Container Services
+- **ACI Subnet** (10.2.1.0/24): Active Azure Container Instances deployment
 
 ### Static Egress Architecture Deep Dive
 
 
 #### 🎯 Static Egress Architecture Strategy
-
 
 The architecture implements **subnet-based static egress** to handle different egress requirements:
 
@@ -56,18 +99,18 @@ The architecture implements **subnet-based static egress** to handle different e
 ┌─────────────────────────────────────────────────────────────────┐
 │                    AKS Cluster Architecture                     │
 ├─────────────────────────────────────────────────────────────────┤
-│   App Subnet            │         Egress Subnet                 │
-│   (10.1.1.0/24)         │         (10.1.2.0/24)                │
-│                         │                                       │
-│ ┌─────────────────────┐ │ ┌─────────────────────────────────────┐ │
-│ │ NAT Gateway Egress  │ │ │ Azure Firewall Egress               │ │
-│ │ Static Public IPs   │ │ │ Static Public IPs                   │ │
-│ │ Direct Internet     │ │ │ Security-Controlled                 │ │
-│ │ High Performance    │ │ │ Full Traffic Inspection             │ │
-│ └─────────────────────┘ │ └─────────────────────────────────────┘ │
-│                         │                                       │
-│ Route: 0.0.0.0/0 →      │ Route: 0.0.0.0/0 →                    │
-│        NAT Gateway      │        Azure Firewall                 │
+│   App Subnet              │         Egress Subnet               │
+│   (172.16.1.0/24)         │         (10.1.0.0/26)              │
+│                           │                                     │
+│ ┌─────────────────────────┐ │ ┌───────────────────────────────────┐ │
+│ │ NAT Gateway Egress      │ │ │ Azure Firewall Egress             │ │
+│ │ Static Public IPs       │ │ │ Static Public IPs                 │ │
+│ │ Direct Internet         │ │ │ Security-Controlled               │ │
+│ │ High Performance        │ │ │ Full Traffic Inspection           │ │
+│ └─────────────────────────┘ │ └───────────────────────────────────┘ │
+│                           │                                     │
+│ Route: 0.0.0.0/0 →        │ Route: 0.0.0.0/0 →                  │
+│        NAT Gateway        │        Azure Firewall               │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -115,13 +158,12 @@ The architecture implements **static egress IP** patterns to provide:
 
 #### 📊 Static Egress Concepts
 
-
 **Egress Path Determination**:
 
 The architecture uses **subnet-based egress routing** rather than dynamic pod scheduling:
 
-- **App Subnet (10.1.1.0/24)**: Workloads with direct internet access get predictable NAT gateway IPs
-- **Egress Subnet (10.1.2.0/24)**: Security-controlled workloads get static firewall public IPs
+- **App Subnet (172.16.1.0/24)**: Workloads with direct internet access get predictable NAT gateway IPs
+- **Egress Subnet (10.1.0.0/26)**: Security-controlled workloads get static firewall public IPs
 - **Route Table Control**: Static routes determine egress path based on subnet placement
 
 **Benefits of Static Egress**:
@@ -145,7 +187,7 @@ The architecture uses **subnet-based egress routing** rather than dynamic pod sc
 #### Two-Tier Internet Access
 
 
-- **Direct Access**: App subnet → Internet (performance-optimized)
+- **Direct Access**: App subnet → Internet (performance-optimized). This is only to demostrate 
 - **Controlled Access**: Egress subnet → Azure Firewall → Internet (security-controlled)
 
 
@@ -170,22 +212,7 @@ The architecture uses **subnet-based egress routing** rather than dynamic pod sc
 - **Static public IPs**: Both NAT Gateway and Azure Firewall use pre-allocated static public IPs
 - **Route table control**: Explicit routing rules ensure consistent egress paths
 
-### Business Impact
 
-**External Service Integration**:
-- SaaS providers can whitelist specific IP ranges
-- Partner networks can configure firewall rules for known IPs
-- API rate limiting and authentication based on source IP
-
-**Compliance & Auditing**:
-- Simplified audit trails with known egress IP addresses
-- Regulatory compliance through predictable network behavior
-- Consistent security policy application per egress path
-
-**Operational Benefits**:
-- Reduced troubleshooting complexity
-- Clearer network monitoring and alerting
-- Simplified change management processes
 
 ## 🚀 Getting Started
 
@@ -431,42 +458,6 @@ subnetpeeredaks/
 └── README.md                   # This documentation
 ```
 
-## 🎯 Use Cases for Static Egress IPs
-
-### Enterprise Workloads
-
-- **Third-Party API Integration**: External services can whitelist specific IP ranges
-- **SaaS Connectivity**: Predictable egress IPs for cloud service integrations
-- **Partner Network Access**: Consistent IP addresses for B2B network connectivity
-
-### DevOps Scenarios
-
-- **Multi-Environment**: Separate spokes with distinct egress IP ranges per environment
-- **Microservices**: Service-to-service communication with known egress patterns
-- **CI/CD Pipelines**: Consistent egress IPs for deployment pipeline integrations
-
-### Compliance Requirements
-
-- **Audit Trails**: Static IP addresses enable simplified compliance reporting
-- **Regulatory Standards**: Predictable egress paths for financial/healthcare regulations
-- **Network Segmentation**: Isolated spoke environments with distinct egress profiles
-
-## 🔍 Monitoring and Observability
-
-### Built-in Logging
-- Azure Firewall logs all allowed/denied traffic
-- Route table changes are audited
-- VNet peering status is monitored
-
-### Recommended Monitoring
-```bash
-# Enable Azure Monitor for containers
-az aks enable-addons --resource-group 87-aks-egress \
-  --name 87-cilium-aks-cluster-egress --addons monitoring
-
-# View firewall metrics
-az monitor metrics list --resource /subscriptions/<sub>/resourceGroups/87-aks-egress/providers/Microsoft.Network/azureFirewalls/87-firewall
-```
 
 ## 🛡️ Security Considerations
 
@@ -476,72 +467,8 @@ az monitor metrics list --resource /subscriptions/<sub>/resourceGroups/87-aks-eg
 - ✅ Private endpoints for AKS API servers
 - ✅ No direct spoke-to-spoke connectivity
 
-### Identity and Access
-- ✅ Managed identities for AKS nodes
-- ✅ RBAC for Kubernetes resources
-- ✅ Azure AD integration available
 
-### Compliance
-- ✅ Traffic logging for audit trails
-- ✅ Centralized policy enforcement
-- ✅ Network segmentation controls
 
-## 💡 Best Practices
-
-### Deployment
-1. Always test in non-production first
-2. Use step-by-step deployment for troubleshooting
-3. Monitor resource costs during deployment
-4. Verify connectivity after each major step
-
-### Operations
-1. Regularly review firewall logs
-2. Update AKS and node images monthly
-3. Monitor network performance metrics
-4. Backup critical configurations
-
-### Security
-1. Implement least-privilege access
-2. Regularly audit firewall rules
-3. Use Azure Policy for governance
-4. Enable Azure Security Center
-
----
-
-## 📞 Support
-
-For issues and questions:
-1. Run `./diagnose-connectivity.sh` for automated troubleshooting
-2. Check Azure Activity Log for deployment errors
-3. Review firewall logs for connectivity issues
-4. Verify resource quotas and limits
-
-**Architecture designed for enterprise-grade Azure workloads with security, scalability, and compliance in mind.**
-```
-
-### Deploy with AKS
-
-To deploy the complete solution including AKS clusters:
-
-```bash
-./deploy-bicep.sh --deploy-aks
-```
-
-### Custom Deployment Options
-
-To deploy to a custom Azure region:
-
-```bash
-./deploy-bicep.sh --location westus2
-```
-
-To deploy to a custom resource group:
-
-```bash
-./deploy-bicep.sh --resource-group my-custom-rg
-```
-
-See [network-deployment-options.md](./network-deployment-options.md) for more details.
 
 ## Network Details
 
@@ -595,6 +522,116 @@ See [network-deployment-options.md](./network-deployment-options.md) for more de
 | **Performance** | Moderate (firewall overhead) | High (direct routing) |
 | **Use Cases** | Compliance workloads, sensitive data | High-throughput apps, internal services |
 | **IP Allocation** | Smaller /26 for efficiency | Larger /24 for application density |
+
+## 🌐 Complete IP Range Documentation
+
+### VNet and Subnet Configuration Details
+
+#### Hub VNet (hub1) - Complete Breakdown
+| **Subnet Name** | **CIDR** | **IPs Available** | **Purpose** | **Service Delegation** |
+|-----------------|----------|-------------------|-------------|----------------------|
+| subnet-1 | 10.0.1.0/24 | 251 | General hub services | None |
+| AzureFirewallSubnet | 10.0.2.0/24 | 251 | Azure Firewall | None |
+| AzureFirewallManagementSubnet | 10.0.3.0/24 | 251 | Firewall management | None |
+| dns-inbound-subnet | 10.0.10.0/28 | 11 | DNS resolver inbound | Microsoft.Network/dnsResolvers |
+| dns-outbound-subnet | 10.0.20.0/28 | 11 | DNS resolver outbound | Microsoft.Network/dnsResolvers |
+
+#### Spoke1 VNet (spoke1) - Multi-Address Space Details
+| **Subnet Name** | **CIDR** | **IPs Available** | **Purpose** | **Address Space** | **Egress Path** | **Service Delegation** |
+|-----------------|----------|-------------------|-------------|-------------------|-----------------|----------------------|
+| egress-subnet | 10.1.0.0/26 | 59 | AKS egress nodes | 10.1.0.0/22 | Via Azure Firewall | None |
+| app-subnet | 172.16.1.0/24 | 251 | AKS app nodes | 172.16.0.0/22 | Direct Internet | None |
+| apiserver-subnet | 172.16.2.0/28 | 11 | AKS API server | 172.16.0.0/22 | Private endpoint | Microsoft.ContainerService/managedClusters |
+| aci-subnet | 172.16.3.0/24 | 251 | Container instances (unused) | 172.16.0.0/22 | Direct Internet | Microsoft.ContainerInstance/containerGroups |
+
+#### Spoke2 VNet (spoke2) - Container Services
+| **Subnet Name** | **CIDR** | **IPs Available** | **Purpose** | **Egress Path** | **Service Delegation** |
+|-----------------|----------|-------------------|-------------|-----------------|----------------------|
+| aci-subnet-spoke2 | 10.2.1.0/24 | 251 | ACI containers (active) | Direct Internet | Microsoft.ContainerInstance/containerGroups |
+
+### Kubernetes IP Configuration
+
+#### AKS Cluster IP Ranges
+| **Component** | **CIDR** | **Total IPs** | **Purpose** |
+|---------------|----------|---------------|-------------|
+| Pod CIDR | 192.168.0.0/16 | 65,536 | Kubernetes pod IP addresses |
+| Service CIDR | Default (10.0.0.0/16) | 65,536 | Kubernetes service IP addresses |
+
+> **Note**: Service CIDR uses the default AKS range and should not conflict with VNet ranges.
+
+### Address Space Utilization Analysis
+
+#### IP Range Allocation Summary
+| **Range Type** | **Network** | **Size** | **Utilization** | **Growth Capacity** |
+|----------------|-------------|----------|-----------------|-------------------|
+| **Hub Infrastructure** | 10.0.0.0/16 | /16 | ~1,300 IPs used | High |
+| **Spoke1 Routable** | 10.1.0.0/22 | /22 | ~60 IPs used | Medium |
+| **Spoke1 Private** | 172.16.0.0/22 | /22 | ~260 IPs used | Medium |
+| **Spoke2** | 10.2.0.0/22 | /22 | ~250 IPs used | Medium |
+| **Pod Network** | 192.168.0.0/16 | /16 | Variable | High |
+
+#### Reserved IP Calculations
+> Azure reserves the first 4 IPs and last 1 IP in each subnet:
+> - **x.x.x.0**: Network address
+> - **x.x.x.1**: Default gateway
+> - **x.x.x.2**: Azure DNS mapping
+> - **x.x.x.3**: Azure DNS mapping  
+> - **x.x.x.255**: Network broadcast address
+
+### Internet Egress Configuration
+
+#### Static IP Egress Patterns
+| **Subnet** | **Egress Method** | **Static IP Source** | **Security Level** |
+|------------|-------------------|---------------------|-------------------|
+| egress-subnet (10.1.0.0/26) | Azure Firewall | Firewall Public IP | High - Full inspection |
+| app-subnet (172.16.1.0/24) | Direct Internet | NAT Gateway Public IP | Medium - Network level |
+| aci-subnet-spoke2 (10.2.1.0/24) | Direct Internet | Default Azure egress | Low - Outbound only |
+
+### Inter-VNet Routing Configuration
+
+#### Transitive Routing Rules
+| **Source** | **Destination** | **Next Hop** | **Route Type** |
+|------------|-----------------|--------------|----------------|
+| 10.1.0.0/22 | 10.2.0.0/22 | Azure Firewall | User-defined |
+| 172.16.0.0/22 | 10.2.0.0/22 | Azure Firewall | User-defined |
+| 10.2.0.0/22 | 10.1.0.0/22 | Azure Firewall | User-defined |
+| 10.2.0.0/22 | 172.16.0.0/22 | Azure Firewall | User-defined |
+
+### Security Boundaries and Network Segmentation
+
+#### Security Zone Configuration
+| **Security Zone** | **IP Ranges** | **Access Control** | **Inspection Level** |
+|-------------------|---------------|-------------------|---------------------|
+| **Hub Services** | 10.0.0.0/16 | Azure Firewall + NSGs | Full |
+| **Controlled Egress** | 10.1.0.0/26 | Azure Firewall + NSGs | Full |
+| **Direct Egress** | 172.16.1.0/24 | NSGs only | Network level |
+| **Private Endpoints** | 172.16.2.0/28 | NSGs + Private Link | Full |
+| **Container Services** | 10.2.1.0/24, 172.16.3.0/24 | NSGs only | Network level |
+
+### Scalability and Growth Planning
+
+#### Capacity Analysis
+| **Component** | **Current Allocation** | **Maximum Capacity** | **Expansion Strategy** |
+|---------------|----------------------|---------------------|----------------------|
+| **Hub VNet** | ~1,300/65,536 IPs | 65,536 | Add subnets within existing /16 |
+| **Spoke1 Egress** | ~60/1,024 IPs | 1,024 | Expand subnet or add new spoke |
+| **Spoke1 Apps** | ~260/1,024 IPs | 1,024 | Expand subnet or add new spoke |
+| **Spoke2** | ~250/1,024 IPs | 1,024 | Expand subnet or add new spoke |
+| **Pod Network** | Variable/65,536 IPs | 65,536 | Use cluster autoscaler |
+
+### RFC 1918 Private Address Space Usage
+
+#### Address Space Distribution
+- **10.0.0.0/8**: Hub and primary spoke infrastructure
+- **172.16.0.0/12**: Private app workloads and API servers  
+- **192.168.0.0/16**: Kubernetes pod network overlay
+
+#### Multi-Address Space Architecture Benefits
+1. **Segregated Traffic Control**: Separate egress policies for different workload types
+2. **Network Efficiency**: Smaller subnets reduce broadcast domains
+3. **Security Isolation**: Non-routable ranges for sensitive workloads
+4. **Compliance Ready**: Predictable egress IPs for external service whitelisting
+5. **Cost Optimization**: Direct internet access for high-throughput workloads
 
 ## 📝 Legacy Notes and Development History
 
