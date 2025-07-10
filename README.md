@@ -1,6 +1,11 @@
 # Azure AKS Static Egress Demo
 
 This project demonstrates how to achieve **static egress IPs** for Azure Kubernetes Service (AKS) workloads using a hub-and-spoke network architecture with Azure Firewall.
+Primarly the focus of this demo is to demostration how a typical ipv4 hub and spoke architecture could save ips by using a combination of 
+ * subnet peering
+ * Static egress gateway 
+
+Use subnet-based peering combined with Static egress routing to force specific pods through an peered egress subnet and then via Azure Firewall. This allows us to design architectures where the app-node pool is on a non-discoverable ip range and and scale independant of the peered networks. By then deploying an ingress router ontop of the same egress node pool we effectively achive egress and ingress (natting) on one nodepool. This design also means there is no requirement to have ipam for the non-discoverable app subnet as this is isolated from hub and spoke network. This reduced operation overhead as spokes can all reuse the same app-subnet range. 
 
 ## 🏗️ Architecture Overview
 
@@ -14,9 +19,9 @@ This project demonstrates how to achieve **static egress IPs** for Azure Kuberne
 
 ## 🎯 What This Demo Shows
 
-**Problem**: By default, AKS pods get random egress IP addresses, making it difficult to whitelist IPs with external services.
+**Problem**: By default, AKS pods get random egress IP addresses, making it difficult to whitelist IPs with onpremise or external service. Additionally as ipv4 ips become more scarce, we require approaches to limit the number of required ips by AKS 
 
-**Solution**: Use subnet-based routing to force specific pods through Azure Firewall with static public IPs.
+**Solution**: Use subnet-based peering combined with Static egress routing to force specific pods through an peered egress subnet and then via Azure Firewall. This allows us to design architectures where the app-node pool is on a non-discoverable ip range and and scale independant of the peered networks. This reduces operation overhead as additional spokes can all reuse the same app-subnet range. 
 
 ### Key Demo Components
 

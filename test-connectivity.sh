@@ -290,7 +290,7 @@ main() {
     # Step 4: Additional info
     echo ""
     echo "===================================================="
-    echo "Additional Network Information"
+    echo " Additional Network Information"
     echo "===================================================="
     
     echo "[INFO] Positive test pod info:"
@@ -318,10 +318,10 @@ main() {
         echo "[INFO]   Node internal IP: $node_ip_negative"
     fi
     
-    # Step 3: Test static egress to public ACI container
+    # Step 4: Test static egress to public ACI container
     echo ""
     echo "===================================================="
-    echo "Step 3: Test Static Egress to Public ACI"
+    echo "Step 4: Test Static Egress to Public ACI"
     echo "===================================================="
     echo "[INFO] Testing static egress IP functionality using public ACI container"
     
@@ -342,7 +342,8 @@ main() {
         # Test static egress to public container
         echo "[INFO] Testing egress from static egress pod to public ACI container..."
         egress_test_output=$(kubectl exec -n "$NAMESPACE" "$pod_name_positive" -- curl -s --max-time 10 "http://$public_aci_ip:${PUBLIC_ACI_PORT:-8080}" 2>/dev/null || echo "failed")
-        
+        echo "[INFO] Response from public ACI container:"
+        echo "$egress_test_output"
         if [[ "$egress_test_output" =~ '"x-forwarded-for"' ]]; then
             # Extract the source IP from the response
             static_egress_ip=$(echo "$egress_test_output" | grep -o '"x-forwarded-for":"[^"]*"' | cut -d'"' -f4 | cut -d',' -f1)
@@ -385,15 +386,6 @@ main() {
         echo "[SUCCESS] ✅   - Source IP from egress: $source_ip_positive"
         echo "[SUCCESS] ✅   - Source IP is within egress subnet: $EGRESS_SUBNET_RANGE"
         echo "[SUCCESS] ✅ Negative test (no static egress): CONNECTIVITY BLOCKED as expected"
-        
-        # Add static egress validation results
-        if [ "${static_egress_validated:-false}" = true ]; then
-            echo "[SUCCESS] ✅ Static egress IP validation: CONFIRMED via public ACI test"
-            echo "[SUCCESS] ✅   - Public egress IP: ${static_egress_ip:-unknown}"
-        else
-            echo "[INFO] ℹ️  Static egress IP validation: SKIPPED (public ACI not available)"
-        fi
-        
         echo "[SUCCESS] ✅ Static egress functionality is working correctly!"
         
         echo ""
@@ -401,9 +393,6 @@ main() {
         echo "[INFO]   • Transitive routing through Azure Firewall is working for static egress pods"
         echo "[INFO]   • Static egress IPs are being used for inter-spoke communication"
         echo "[INFO]   • Pods without static egress configuration are properly blocked"
-        if [ "${static_egress_validated:-false}" = true ]; then
-            echo "[INFO]   • Static egress IPs are consistent for internet-bound traffic"
-        fi
         echo "[INFO]   • The hub-and-spoke architecture is functioning as designed"
     else
         echo "[ERROR] ❌ Some connectivity tests failed!"
